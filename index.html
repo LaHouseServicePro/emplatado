@@ -269,7 +269,7 @@ mark{color:#FCF050}
 <header class="top"><div class="in">
  <div class="brand">
   <div><img class="logo" src="logo.png" alt="La House" width="640" height="164"><h1>Manual de Emplatado</h1><p class="sub">El Barrio y Provenza · Noviembre 2026</p></div>
-  <div class="hc" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="rv" id="rvb" hidden>Revisar cambios</button><button class="rv" id="sgb">Guía de salsas</button><button class="rv" id="accb" hidden>Acceso del equipo</button>
+  <div class="hc" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="rv" id="rvb" hidden>Revisar cambios</button><button class="rv" id="sgb">Guía de salsas</button><button class="rv" id="accb" hidden>Acceso del equipo</button><button class="rv" id="outb" hidden>Salir</button>
   <div class="seg" role="group" aria-label="Sede" id="seg">
    <button data-s="all" aria-pressed="true">Ambas<span class="lbl"> sedes</span></button>
    <button data-s="barrio" aria-pressed="false">El Barrio</button>
@@ -408,6 +408,7 @@ function render(){
  $('qx').style.display=st.q?'block':'none'}
 const hl=s=>esc(s).replace(/\(([^()]*?\d[^()]*?)\)/g,'<mark>($1)</mark>');
 function open(id){const r=byId[id];if(!r){close(true);return}
+ try{window.LHVIEW&&window.LHVIEW(id)}catch(_){}
  if(editing&&editing!==id){editing=null;renderEdit.d=null}
  const g=r.g;const sedes=Object.keys(g.items).sort();
  $('bt').textContent=r.nombre;
@@ -630,7 +631,7 @@ applyEdits();renderRv();updFn();if(!CH.length)$('rvb').hidden=true;if(!SA){lock(
 <script type="module">
 import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,collection,getDocs} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,collection,getDocs,increment} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const CONFIG={"apiKey": "AIzaSyBYALdajSTvkyBiKIQobsQyNLhapFUYINo", "authDomain": "la-house-service-pro.firebaseapp.com", "projectId": "la-house-service-pro", "storageBucket": "la-house-service-pro.firebasestorage.app", "messagingSenderId": "49435128726", "appId": "1:49435128726:web:0978e5ca2fa46a5ee7a3b7"};
 const ADMIN_EMAILS=["machado.rarm@gmail.com"];
@@ -724,12 +725,23 @@ const waText=s=>`Hola ${String(s.name||"").split(" ")[0]} 👋 Este es tu acceso
 const waUrl=s=>"https://wa.me/?text="+encodeURIComponent(waText(s));
 const slug=n=>String(n||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim().split(/\s+/).slice(0,2).join(".").replace(/[^a-z0-9.]/g,"");
 const newPass=()=>{const w=["fogon","sarten","plancha","salsa","limon","mote","arepa","hogao","piña","maiz"];const a=crypto.getRandomValues(new Uint32Array(2));return w[a[0]%w.length].replace("ñ","n")+(1000+a[1]%9000)};
-async function loadStaff(){const s=await getDocs(collection(db,"staff"));STAFF=s.docs.map(d=>Object.assign({id:d.id},d.data())).filter(x=>x.name)}
+async function loadStaff(){const s=await getDocs(collection(db,"staff"));STAFF=s.docs.map(d=>Object.assign({id:d.id},d.data())).filter(x=>x.name);
+  try{const v=await getDocs(collection(db,"emplatado_visitas"));VIS={};v.docs.forEach(d=>VIS[d.id]=d.data());VISOK=true}catch(e){VISOK=false}}
+let VIS={},VISOK=true,DNAMES={};
+const fmtWhen=iso=>{if(!iso)return "";const d=new Date(iso),n=new Date();const hm=d.toLocaleTimeString("es-CO",{hour:"numeric",minute:"2-digit"});
+  const day=x=>new Date(x.getFullYear(),x.getMonth(),x.getDate());const dd=Math.round((day(n)-day(d))/864e5);
+  return dd===0?"hoy "+hm:dd===1?"ayer "+hm:dd<7?"hace "+dd+" días":d.toLocaleDateString("es-CO",{day:"numeric",month:"short"})};
+const visLine=s=>{if(!VISOK)return "";const v=VIS[s.id];
+  if(!v||!v.last)return `<div style="font-size:14px;margin-top:4px;color:#FF7EA6">Nunca ha entrado</div>`;
+  const f=v.fichas||{};const ids=Object.keys(f).sort((a,b)=>String(f[b].last||"").localeCompare(String(f[a].last||"")));
+  const list=ids.map(i=>`<li>${esc(DNAMES[i]||i)} <span style="color:var(--mute)">· ${f[i].n||1} ${(f[i].n||1)===1?"vez":"veces"} · ${fmtWhen(f[i].last)}</span></li>`).join("");
+  return `<div style="font-size:14px;margin-top:4px;color:#73F7FB">Última vez: <b>${fmtWhen(v.last)}</b> · entró ${v.n||1} ${(v.n||1)===1?"vez":"veces"} · vio ${ids.length} ${ids.length===1?"ficha":"fichas"}</div>
+  ${ids.length?`<details style="font-size:14px;margin-top:4px"><summary style="cursor:pointer;color:var(--mute)">Ver fichas que abrió</summary><ul style="margin:6px 0 0 18px;padding:0">${list}</ul></details>`:""}`};
 function panel(){
   const box=document.querySelector("#asheet .rvw");
   const on=STAFF.filter(s=>s.emplatado===true),off=STAFF.filter(s=>s.emplatado!==true);
   const row=s=>{const ok=s.emplatado===true;return `<div class="p" ${LAST===s.id?'style="outline:3px solid #25d366"':''}><div class="h"><b>${esc(s.name)}</b><span class="st ${ok?"ok":"no"}">${ok?"Con acceso":"Sin acceso"}</span></div>
-   <div style="color:var(--mute);font-size:14px">${esc(s.role||"")} · usuario <b style="color:#fff">${esc(s.user||"")}</b>${s.pass?` · clave <b style="color:#fff">${esc(s.pass)}</b>`:""}${s.active?" · también Servicio Pro":""}</div>
+   <div style="color:var(--mute);font-size:14px">${esc(s.role||"")} · usuario <b style="color:#fff">${esc(s.user||"")}</b>${s.pass?` · clave <b style="color:#fff">${esc(s.pass)}</b>`:""}${s.active?" · también Servicio Pro":""}</div>${s.emplatado===true?visLine(s):""}
    <div class="acts2">${ok&&s.user&&s.pass?`<a class="wa" href="${waUrl(s)}" target="_blank" rel="noopener">${LAST===s.id?"Enviar acceso por WhatsApp":"Reenviar por WhatsApp"}</a>`:""}
    ${ok?`<button class="rm" data-q="${esc(s.id)}">Quitar acceso</button>`:`<button data-on="${esc(s.id)}" style="background:#1f9d55;border-color:#1f9d55;color:#fff">Dar acceso</button>`}</div>
    <div class="cf" id="cf-${esc(s.id)}"><span style="flex-basis:100%">¿Quitarle el acceso al manual a ${esc(String(s.name).split(" ")[0])}?</span><button class="y" data-off="${esc(s.id)}">Sí, quitar</button><button class="n" data-x="${esc(s.id)}">Cancelar</button></div></div>`};
@@ -740,7 +752,7 @@ function panel(){
   <label for="np">Clave</label><input id="np" required value="${newPass()}">
   <label style="display:flex;gap:10px;align-items:center;font-size:15px;color:var(--ink)"><input type="checkbox" id="nsp" style="width:22px;min-height:22px"> También puede entrar a Servicio Pro</label>
   <button class="go" type="submit">Crear usuario</button><div class="err" id="ne" style="color:#FF7EA6;font-weight:700"></div></form>
-  <h3>Con acceso (${on.length})</h3>${on.map(row).join("")||'<p style="color:var(--mute)">Todavía no le has dado acceso a nadie.</p>'}
+  ${VISOK?"":`<p style="color:#FF7EA6;font-size:14px">No pude leer las entradas del equipo. Falta activar la regla de visitas en Firebase.</p>`}<h3>Con acceso (${on.length})</h3>${on.map(row).join("")||'<p style="color:var(--mute)">Todavía no le has dado acceso a nadie.</p>'}
   <h3>Sin acceso (${off.length})</h3><p style="color:var(--mute);font-size:14px;margin:-4px 0 10px">Aquí también salen las personas de Servicio Pro: con «Dar acceso» entran al manual con el mismo usuario y clave.</p>${off.map(row).join("")||'<p style="color:var(--mute)">Nadie.</p>'}
   <button class="sec" id="pOut" style="width:100%;min-height:48px;border-radius:12px;border:1px solid var(--line);background:#171717;color:#fff;font-weight:700;margin-top:16px;cursor:pointer">Cerrar sesión</button>`;
   const nn=box.querySelector("#nn"),nu=box.querySelector("#nu");let touched=false;
@@ -784,6 +796,12 @@ async function start(user){
   let D;try{D=JSON.parse(c.js)}catch(e){blocked("Error","No se pudo abrir el contenido. Avísale a tu líder.");return}
   g.className="gate";g.innerHTML="";document.body.style.overflow="";
   window.startApp(D);
+  try{(D.recetas||[]).forEach(r=>DNAMES[r.id]=r.nombre+(r.sede==="barrio"?" (El Barrio)":r.sede==="provenza"?" (Provenza)":""))}catch(_){}
+  {const ob=document.getElementById("outb");if(ob){ob.hidden=false;ob.onclick=()=>{if(confirm("¿Cerrar sesión en este celular?"))signOut(auth).then(()=>location.reload())}}}
+  if(!isAdmin){const vr=doc(db,"emplatado_visitas",user.uid);const nm=(staffDoc&&staffDoc.name)||"";const seen={};
+    setDoc(vr,{name:nm,last:new Date().toISOString(),n:increment(1)},{merge:true}).catch(()=>{});
+    window.LHVIEW=id=>{if(seen[id])return;seen[id]=1;const t=new Date().toISOString();
+      setDoc(vr,{last:t,lastFicha:id,fichas:{[id]:{n:increment(1),last:t}}},{merge:true}).catch(()=>{})}}
   if(isAdmin){await backfill();await loadStaff().catch(()=>{});
     window.LHACC=()=>{panel()};
     ["tacc","accb"].forEach(i=>{const el=document.getElementById(i);if(el)el.hidden=false});
