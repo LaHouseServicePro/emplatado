@@ -631,13 +631,17 @@ applyEdits();renderRv();updFn();if(!CH.length)$('rvb').hidden=true;if(!SA){lock(
 <script type="module">
 import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,collection,getDocs,increment} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,collection,getDocs,increment,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const CONFIG={"apiKey": "AIzaSyBYALdajSTvkyBiKIQobsQyNLhapFUYINo", "authDomain": "la-house-service-pro.firebaseapp.com", "projectId": "la-house-service-pro", "storageBucket": "la-house-service-pro.firebasestorage.app", "messagingSenderId": "49435128726", "appId": "1:49435128726:web:0978e5ca2fa46a5ee7a3b7"};
 const ADMIN_EMAILS=["machado.rarm@gmail.com"];
 const DOMAIN="staff.lahouse.app";
 const CHUNK=450000;
 const APP_ID="la-house-emplatado";
+const ADMIN_WA="573337196715";
+const ROLES=[["sc","Asesor de servicio"],["bt","Bartender"],["co","Cocinero(a)"],["cj","Cajero(a)"],["ho","Host"],["cv","Cover"],["le","Líder de turno"]];const roleName=r=>{const x=ROLES.find(y=>y[0]===r);return x?x[1]:(r||"")};
+const HUB=location.origin+"/App/admin/";
+
 const CARGOS=["Jefe de cocina","Cocinero(a)","Auxiliar de cocina","Steward / lavaplatos","Líder de servicio","Administración","Otro"];
 
 const fb=initializeApp(CONFIG);const auth=getAuth(fb);const db=getFirestore(fb);
@@ -652,12 +656,58 @@ function loginForm(msg){
   show(`<p>Las fichas de cocina de El Barrio y Provenza.</p><form id="lgF"><label for="lgU">Usuario</label><input class="tx" id="lgU" autocomplete="username" autocapitalize="none" placeholder="Ej: ana.lopez">
   <label for="lgP">Clave</label><input class="tx" id="lgP" type="password" autocomplete="current-password">
   <button type="submit" id="lgGo">Entrar</button><div class="err" id="lgE" role="status">${esc(msg||"")}</div></form>
-  <p style="font-size:14px;margin-top:14px">¿No tienes usuario y clave? Pídeselos a tu líder.</p>`);
+  <div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px"><b>¿Primera vez?</b><p style="font-size:14px">Crea tu cuenta y tu líder te aprueba.</p><button class="sec" id="lgNew">Crear mi cuenta</button></div>`);
+  document.getElementById("lgNew").onclick=()=>signupForm();
   document.getElementById("lgF").onsubmit=async ev=>{ev.preventDefault();const u=document.getElementById("lgU").value,p=document.getElementById("lgP").value,e=document.getElementById("lgE");
     if(!u||!p){e.textContent="Escribe tu usuario y tu clave.";return}
     e.textContent="Entrando…";document.getElementById("lgGo").disabled=true;
     try{await signInWithEmailAndPassword(auth,toEmail(u),p)}
     catch(err){const c=err&&err.code||"";e.textContent=c.includes("too-many")?"Demasiados intentos. Espera unos minutos.":c.includes("network")?"Sin conexión a internet. Revisa tu señal.":"Usuario o clave incorrectos.";document.getElementById("lgGo").disabled=false}};
+}
+const slugU=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim().replace(/\s+/g,".").replace(/[^a-z0-9._-]/g,"");
+const selS='style="width:100%;font:inherit;font-size:16px;min-height:48px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:#fff;color:#111"';
+let signingUp=false;
+function profileFields(){return `<label for="rgN">Nombre y apellido</label><input class="tx" id="rgN" autocomplete="name" placeholder="Ej: Ana López">
+  <label for="rgR">Cargo</label><select id="rgR" ${selS}>${ROLES.map(r=>`<option value="${r[0]}">${r[1]}</option>`).join("")}</select>`}
+function signupForm(){
+  show(`<p>Crea tu cuenta. Tu líder la aprueba y entras al manual.</p><form id="rgF">${profileFields()}
+  <label for="rgU">Usuario (con este entras)</label><input class="tx" id="rgU" autocomplete="username" autocapitalize="none" placeholder="Ej: ana.lopez">
+  <label for="rgP">Clave (mínimo 6 caracteres)</label><input class="tx" id="rgP" type="password" autocomplete="new-password">
+  <label for="rgP2">Repite la clave</label><input class="tx" id="rgP2" type="password" autocomplete="new-password">
+  <button type="submit" id="rgGo">Crear cuenta</button><div class="err" id="rgE" role="status"></div></form>
+  <button class="sec" id="rgBack">Ya tengo cuenta: entrar</button>`);
+  const nm=document.getElementById("rgN"),us=document.getElementById("rgU");let touched=false;
+  us.oninput=()=>{touched=true};nm.oninput=()=>{if(!touched)us.value=slugU(nm.value)};
+  document.getElementById("rgBack").onclick=()=>loginForm();
+  document.getElementById("rgF").onsubmit=async ev=>{ev.preventDefault();const e=document.getElementById("rgE");
+    const name=nm.value.trim(),role=document.getElementById("rgR").value,u=slugU(us.value),p=document.getElementById("rgP").value,p2=document.getElementById("rgP2").value;
+    if(!name||!u){e.textContent="Escribe tu nombre y un usuario.";return}
+    if(p.length<6){e.textContent="La clave debe tener mínimo 6 caracteres.";return}
+    if(p!==p2){e.textContent="Las claves no coinciden.";return}
+    e.textContent="Creando tu cuenta…";document.getElementById("rgGo").disabled=true;signingUp=true;
+    try{const cr=await createUserWithEmailAndPassword(auth,toEmail(u),p);
+      if(!ADMIN_EMAILS.includes(toEmail(u)))await setDoc(doc(db,"staff",cr.user.uid),{name,role,user:u,active:false,pending:true,self:true,pide:"emplatado",created:new Date().toISOString()});
+      signingUp=false;started=false;start(cr.user)}
+    catch(err){signingUp=false;const c=err&&err.code||"";document.getElementById("rgGo").disabled=false;
+      e.textContent=c.includes("email-already")?"Ese usuario ya existe. Elige otro o entra con él.":c.includes("weak-password")?"La clave es muy corta.":c.includes("network")?"Sin conexión a internet.":"No se pudo crear la cuenta. Intenta de nuevo."}};
+}
+function completeForm(user){
+  show(`<p>Completa tu registro para pedir acceso al manual.</p><form id="rgF">${profileFields()}<button type="submit" id="rgGo">Enviar</button><div class="err" id="rgE" role="status"></div></form><button class="sec" id="lgOut">Salir</button>`);
+  document.getElementById("lgOut").onclick=()=>signOut(auth).then(()=>location.reload());
+  document.getElementById("rgF").onsubmit=async ev=>{ev.preventDefault();const name=document.getElementById("rgN").value.trim(),e=document.getElementById("rgE");if(!name){e.textContent="Escribe tu nombre.";return}
+    try{await setDoc(doc(db,"staff",user.uid),{name,role:document.getElementById("rgR").value,user:String(user.email||"").split("@")[0],active:false,pending:true,self:true,pide:"emplatado",created:new Date().toISOString()});started=false;start(user)}
+    catch(err){e.textContent="No se pudo enviar. Intenta de nuevo."}};
+}
+function waitScreen(user,staff,pending){
+  const txt=pending?`Hola, soy ${staff.name} (${roleName(staff.role)}). Ya creé mi cuenta en el Manual de Emplatado - La House con el usuario ${staff.user||""}. ¿Me apruebas el acceso? 🙏`
+    :`Hola, soy ${staff.name||""}. Quiero acceso al Manual de Emplatado - La House con mi usuario ${staff.user||""}. ¿Me lo activas? 🙏`;
+  show(`<div style="font-size:52px">⏳</div><h2 style="font-size:26px">${pending?"¡Ya casi!":"Te falta el acceso"}</h2>
+  <p>Hola <b>${esc(staff.name||"")}</b>, ${pending?"tu cuenta quedó creada. Falta que tu líder te apruebe.":"tu usuario todavía no tiene acceso al Manual de Emplatado."} Avísale y, apenas lo haga, el manual se abre solo.</p>
+  <p style="font-size:13px">Tu usuario: <b>${esc(staff.user||"")}</b></p>
+  <a href="https://wa.me/${ADMIN_WA}?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener" style="display:block;margin-top:16px;min-height:50px;line-height:50px;border-radius:12px;background:#25d366;color:#04210f;font-weight:800;text-decoration:none">📲 Avisar al líder por WhatsApp</a>
+  <button class="sec" id="lgOut">Salir</button>`);
+  document.getElementById("lgOut").onclick=()=>signOut(auth).then(()=>location.reload());
+  const off=onSnapshot(doc(db,"staff",user.uid),sn=>{const d=sn.data();if(d&&d.emplatado===true){off();started=false;start(user)}else if(pending&&d&&!d.pending&&d.emplatado!==true){off();blocked("No tienes acceso","Tu solicitud no fue aprobada. Si crees que es un error, habla con tu líder.")}},()=>{});
 }
 function blocked(title,text,why){const u=auth.currentUser;show(`<div style="font-size:52px">🚫</div><h2 style="font-size:28px">${esc(title)}</h2><p>${esc(text)}</p><p style="font-size:13px;opacity:.7;margin-top:6px">Sesión: ${esc(u&&u.email||"—")}${why?" · "+esc(why):""}</p><button class="sec" id="lgOut">Salir</button>`);
   document.getElementById("lgOut").onclick=()=>signOut(auth).then(()=>location.reload())}
@@ -784,7 +834,8 @@ async function start(user){
   let staffDoc=null;if(!isAdmin){let staff=null;
     try{const s=await getDoc(doc(db,"staff",user.uid));staff=s.exists()?s.data():null}
     catch(e){started=false;blocked("Sin conexión","No pudimos verificar tu acceso. Revisa tu internet e intenta de nuevo.");return}
-    if(!staff||staff.emplatado!==true){started=false;blocked("No tienes acceso","Tu usuario no tiene acceso al Manual de Emplatado. Si crees que es un error, habla con tu líder.");return}staffDoc=staff}
+    if(!staff){if(signingUp)return;started=false;completeForm(user);return}
+    if(staff.emplatado!==true){started=false;waitScreen(user,staff,!!staff.pending&&!staff.active);return}staffDoc=staff}
   const sv=await siteVersion();let c=cachedContent(sv);let cerr="";
   if(!c){let k="";try{k=isAdmin?(localStorage.getItem("lhm_k")||""):((staffDoc&&staffDoc.ek)||"")}catch(_){}
     if(k){try{c=await decryptSite(k)}catch(e){cerr="clave: "+(e.message||"")}}}
@@ -803,7 +854,7 @@ async function start(user){
     window.LHVIEW=id=>{if(seen[id])return;seen[id]=1;const t=new Date().toISOString();
       setDoc(vr,{last:t,lastFicha:id,fichas:{[id]:{n:increment(1),last:t}}},{merge:true}).catch(()=>{})}}
   if(isAdmin){await backfill();await loadStaff().catch(()=>{});
-    window.LHACC=()=>{panel()};
+    window.LHACC=()=>{location.href=HUB};
     ["tacc","accb"].forEach(i=>{const el=document.getElementById(i);if(el)el.hidden=false});
     const ab=document.getElementById("accb");if(ab)ab.textContent="Equipo de cocina";
     const tl=document.querySelector("#tacc");if(tl)tl.lastChild.textContent="Equipo";}
